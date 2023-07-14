@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Konva.js Example</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #F0F0F0;
+    }
+    canvas {
+      border: 1px solid #CCC;
+    }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/konva@8.0.0/konva.min.js"></script>
+  <script>
+    const container = document.getElementById("container");
+
+    const stage = new Konva.Stage({
+      container: 'container',
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+
+    const layer = new Konva.Layer();
+    stage.add(layer);
+
+    const line = new Konva.Line({
+        points: [23, 20, 23, 160, 70, 93, 150, 109, 290, 139, 270, 93, 300, 100],
+        fill: '#00D2FF',
+        stroke: 'black',
+        strokeWidth: 5,
+        closed: true,
+    });
+    layer.add(line);
+
+    // 添加控制点
+    const controlPoints = [];
+    for (let i = 0; i < line.points().length; i += 2) {
+      const x = line.points()[i];
+      const y = line.points()[i + 1];
+
+      const controlPoint = new Konva.Circle({
+        x: x,
+        y: y,
+        radius: 8,
+        fill: 'green',
+        draggable: true
+      });
+
+      // 控制点拖拽更新线条
+      controlPoint.on('dragmove', function() {
+        const points = line.points();
+        points[i] = this.x();
+        points[i + 1] = this.y();
+        line.points(points);
+        layer.batchDraw();
+      });
+
+      controlPoints.push(controlPoint);
+      layer.add(controlPoint);
+    }
+
+    layer.batchDraw();
+  </script>
+</body>
+</html>

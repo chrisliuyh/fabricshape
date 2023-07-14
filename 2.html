@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Konva.js Example</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #F0F0F0;
+    }
+    canvas {
+      border: 1px solid #CCC;
+    }
+  </style>
+</head>
+<body>
+  <div id="container"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/konva@8.0.0/konva.min.js"></script>
+  <script>
+    const container = document.getElementById("container");
+
+    const stage = new Konva.Stage({
+      container: 'container',
+      width: window.innerWidth,
+      height: window.innerHeight
+    });
+
+    const layer = new Konva.Layer();
+    stage.add(layer);
+
+    const line = new Konva.Line({
+      points: [100, 100, 300, 100],
+      stroke: 'red',
+      strokeWidth: 5,
+      draggable: true
+    });
+    layer.add(line);
+
+    // Add control points
+    const controlPoints = [];
+    for (let i = 0; i < line.points().length; i += 2) {
+      const x = line.points()[i];
+      const y = line.points()[i + 1];
+
+      const controlPoint = new Konva.Circle({
+        x: x,
+        y: y,
+        radius: 5,
+        fill: 'green',
+        draggable: true
+      });
+
+      // Control point drag moves the line and arrow
+      controlPoint.on('dragmove', function() {
+        const points = line.points();
+        points[i] = this.x();
+        points[i + 1] = this.y();
+        line.points(points);
+
+        // Update arrow position
+        arrow.position({
+          x: controlPoints[1].x() ,
+          y: controlPoints[1].y()
+        });
+
+        layer.batchDraw();
+      });
+
+      controlPoints.push(controlPoint);
+      layer.add(controlPoint);
+    }
+
+    // Add arrow
+    const arrow = new Konva.Arrow({
+      x: controlPoints[1].x() ,
+      y: controlPoints[1].y(),
+      points: [0, 0, 0, 0],
+      pointerLength: 15,
+      pointerWidth: 10,
+      fill: 'red',
+      stroke: 'red',
+      draggable: true
+    });
+
+    // Update line and arrow on arrow drag
+    arrow.on('dragmove', function() {
+      const points = line.points();
+      points[2] = this.x() + 40;
+      points[3] = this.y();
+      line.points(points);
+
+      layer.batchDraw();
+    });
+
+    layer.add(arrow);
+
+    // Rotate arrow with the line
+    line.on('transform', function() {
+      const rotation = line.rotation();
+      const deltaRotation = rotation - arrow.rotation();
+      arrow.rotate(deltaRotation);
+      layer.batchDraw();
+    });
+    controlPoints[0].on('dragmove', function() {
+    const deltaX = controlPoints[1].x() - this.x();
+    const deltaY = controlPoints[1].y() - this.y();
+    const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+    arrow.rotation(angle);
+    layer.batchDraw();
+  });
+
+    // Update arrow rotation on control point drag
+    controlPoints[1].on('dragmove', function() {
+      const deltaX = this.x() - controlPoints[0].x();
+      const deltaY = this.y() - controlPoints[0].y();
+      const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
+      arrow.rotation(angle);
+      layer.batchDraw();
+    });
+
+    layer.batchDraw();
+  </script>
+</body>
+</html>

@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Fabric.js Line Control Move</title>
+    <script src="https://cdn.jsdelivr.net/npm/fabric"></script>
+</head>
+
+<body>
+    <div class="buttons-container">
+        <button id="Draw">Draw Line</button>
+        <button id="Cancel">Cancel</button>
+    </div>
+    <div id="FabricCanvasWrapper">
+        <canvas id="FabricCanvas"></canvas>
+    </div>
+    <style>
+        #FabricCanvasWrapper canvas {
+            border: 1px solid black;
+            margin: 0.5rem;
+        }
+
+        .buttons-container {
+            margin: 0.5rem;
+        }
+    </style>
+
+    <script>
+        const defaultRequiredCanvasElementAttributes = {
+            cornerSize: 20,
+            cornerStrokeColor: "black",
+            transparentCorners: false,
+            snapThreshold: 5,
+            snapAngle: 45,
+        };
+
+        const _private = {
+            getAngle({ startX, startY, endX, endY }, initialOffset = 0) {
+                let dx = endX - startX,
+                    dy = endY - startY;
+
+                let angle = Math.atan2(dy, dx);
+                angle *= 180 / Math.PI;
+                angle += initialOffset;
+                return angle;
+            },
+            createCircleShape(options) {
+                return new fabric.Circle(options);
+            },
+            createLine(options, { startX, startY, endX, endY }) {
+                let line = new fabric.Line([startX, startY, endX, endY], {
+                    ...options,
+                });
+
+                return line;
+            },
+        };
+
+        function uuidv4() {
+            return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, (c) =>
+                (
+                    c ^
+                    (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (c / 4)))
+                ).toString(16)
+            );
+        }
+
+        class FabricMain {
+            constructor() {
+                this.defaultElementHeight = 150;
+                this.defaultElementWidth = 150;
+                this.canvasObject = this.initialiseFabricWithCanvas({
+                    canvasSelectorId: "FabricCanvas",
+                    height: 720,
+                    width: 1280,
+                });
+                this.lineManager = new LineManager({
+                    canvasObject: this.canvasObject,
+                    defaultElementHeight: this.defaultElementHeight,
+                    defaultElementWidth: this.defaultElementWidth,
+                });
+
+                this.init();
+            }
+
+            init() {
+                this.editorInstance = this;
+                this.lineManager.init(this);
+
+                this.addListeners();
+                this.addLineUpdateFunctionalityOnGroupPrototype();
+            }
+
+            initialiseFabricWithCanvas({ canvasSelectorId, height, width }) {
+                return new fabric.Canvas(canvasSelectorId, {
+                    width,
+                    height,
+                    preserveObjectStacking: true,
+                    backgroundColor: "white",
+                });
+            }
+            setDrawingOnCanvas(value) {
+                this.drawingOnCanvas = value;
+            }
+
+            addListeners() {
+                let isDown;
+                let mouseMoved = false;
+                let drawingOverOtherElement = false;
+
+                let drawButton = document.getElementById("Draw");
+                let cancelButton = document.getElementById("Cancel");
+
+                drawButton.addEventListener("click", () => {
+                    this.setDrawingOnCanvas(true);
+                });
+
+                cancelButton.addEventListener("click", () => {
+                    this.setDrawingOnCanvas(false);
+                });
+
+                const onMouseDown = async (o) => {
+                    isDown = true;
+
+                    let pointer = this.canvasObject.getPointer(o.e);
+                    let additionalAttributes = { startX: pointer.x, startY: pointer.y };
+
+                    if (o.target) {
+                        drawingOverOtherElement = false;
+                        if (o.target.elementIdentifier == "control") return;
+                        this.lineManager.setSelectedShape(o.target);
+                    }
+
+                    if (this.drawingOnCanvas) {
+                        if (o.target && o.target.elementIdentifier !== "control") {
+                            drawingOverOtherElement = true;
+                            return;
+                        }
+                    }
+
+                    if (this.drawingOnCanvas) {
+                        console.log("Came here");
+                        await this.lineManager.createShape(
+                            { left: pointer.x, top: pointer.y },
+                            additionalAttributes
+                        );
+                        return;
+                    } else if (o.target) {
+                        drawingOverOtherElement = false;
+                        if (o.target.elementIdentifier == "control") return;
+                        this.lineManager.setSelectedShape(o.target);
+                    } else {
+                        this.lineManager.lineControlManager.hideControls();
+                    }
+                };
+
+                const onMouseMove = (o) => {
+                    if (isDown && !drawingOverOtherElement) {
+                        if (this.drawingOnCanvas) {
+                            mouseMoved = true;
+
+                            let pointer = this.canvasObject.getPointer(o.e);
+                            let additionalAttributes = {
+                                endX: pointer.x,
+                                endY: pointer.y,
+                            };
+                            let updatedAttributes = {
+                                height: Math.abs(this.lineManager.pointerY - pointer.y),
+                                width: Math.abs(this.lineManager.pointerX - pointer.x),
+                            };
+
+                            if (this.lineManager.pointerX > pointer.x) {
+                                updatedAttributes.left = pointer.x;
+                            }
+
+                            if (this.lineManager.pointerY > pointer.y) {
+                                updatedAttributes.top = pointer.y;
+                            }
+
+                            this.lineManager.updateShape(updatedAttributes, additionalAttributes);
+                        }
+                    }
+                };
+
+                const onMouseUp = (o) => {
+                    isDown = false;
+
+                    if (this.drawingOnCanvas && !drawingOverOtherElement) {
+                        let additionalAttributes = {};
+                        if (!mouseMoved) {
+                            this.lineManager.updateShape(
+                                {
+                                    height: this.defaultElementHeight,
+                                    width: this.defaultElementWidth,
+                                },
+                                {
+                                    mouseNotMoved: true,
+                                    pointerX: o.pointer.x,
+                                    pointerY: o.pointer.y,
+                                }
+                            );
+                        } else if (mouseMoved) {
+                            let pointer = this.canvasObject.getPointer(o.e);
+
+                            additionalAttributes = {
+                                endX: pointer.x,
+                                endY: pointer.y,
+                                startX: this.lineManager.pointerX,
+                                startY: this.lineManager.pointerY,
+                            };
+                        }
+
+                        this.lineManager.completeShape(additionalAttributes, {
+                            mouseNotMoved: !mouseMoved,
+                            pointerX: o.pointer.x,
+                            pointerY: o.pointer.y,
+                        });
+                    }
+
+                    mouseMoved = false;
+                    drawingOverOtherElement = false;
+
+                    // on mouse up we want to recalculate new interaction
+                    // for all objects, so we call setViewportTransform
+                    this.canvasObject.setViewportTransform(
+                        this.canvasObject.viewportTransform
+                    );
+                };
+
+                this.canvasObject.on("mouse:down", onMouseDown);
+
+                this.canvasObject.on("mouse:move", onMouseMove);
+
+                this.canvasObject.on("mouse:up", onMouseUp);
+
+                this.canvasObject.on("selection:created", (selectionEvent) => {
+                    if (selectionEvent.target) {
+                        if (selectionEvent.target.elementIdentifier === "line") {
+                            if (!this.drawingOnCanvas) {
+                                this.lineManager.lineControlManager.setFollowerObject(
+                                    selectionEvent.target
+                                );
+                                this.lineManager.lineShape.setSelf(selectionEvent.target);
+                                this.lineManager.lineControlManager.showControls(
+                                    this.lineManager.lineShape.getLineCoords()
+                                );
+                                this.lineManager.lineShape.setLineControls(
+                                    this.lineManager.lineControlManager.getControls()
+                                );
+                            }
+                        }
+                        return;
+                    }
+                    this.setAttributeOnSelection(selectionEvent);
+                });
+            }
+
+            setAttributeOnSelection(selectionEvent) {
+                if (selectionEvent.target && !selectionEvent.target.isCreatedByUser) {
+                    selectionEvent.target.set({
+                        ...defaultRequiredCanvasElementAttributes,
+                        borderDashArray: [5],
+                    });
+                }
+            }
+
+            addLineUpdateFunctionalityOnGroupPrototype() {
+                Object.assign(fabric.Group.prototype, {
+                    updateLineOnLineControlMove: function ({
+                        startX,
+                        startY,
+                        endX,
+                        endY,
+                        dotRef,
+                    }) {
+                        let lineAngle = _private.getAngle({
+                            startX,
+                            startY,
+                            endX,
+                            endY,
+                        });
+                        const currentLineAngle = this.angle;
+
+                        // Snapping logic for the line based on the implementation in fabric js
+                        var snapAngle = 45,
+                            snapThreshold = 2.5,
+                            rightAngleLocked = Math.ceil(lineAngle / snapAngle) * snapAngle,
+                            leftAngleLocked = Math.floor(lineAngle / snapAngle) * snapAngle;
+
+                        if (Math.abs(lineAngle - leftAngleLocked) < snapThreshold) {
+                            lineAngle = leftAngleLocked;
+                        } else if (Math.abs(lineAngle - rightAngleLocked) < snapThreshold) {
+                            lineAngle = rightAngleLocked;
+                        }
+
+                        const hypotWidth = Math.hypot(endX - startX, endY - startY);
+
+                        this._objects[0]
+                            .set({
+                                left: 0 - this.width / 2,
+                                width: hypotWidth,
+                                height: 0,
+                            })
+                            .setCoords();
+
+                        if (dotRef === "END") {
+                            this.set({
+                                top: startY,
+                                left: startX,
+                                width: hypotWidth,
+                                angle:
+                                    lineAngle !== currentLineAngle ? lineAngle : currentLineAngle,
+                                originY: "center",
+                            }).setCoords();
+                        } else if (Math.abs(lineAngle % 45) === 0) {
+                            const calcAngle =
+                                lineAngle !== currentLineAngle ? lineAngle : currentLineAngle;
+
+                            switch (calcAngle) {
+                                case 0:
+                                case -0:
+                                case 180:
+                                case -180: {
+                                    /**
+                                     * y/top Needs to be same as endY as endY will be equal to startY for
+                                     * these angles, because start dot and end dot are on the same axis(Horizontal Axis)
+                                     */
+
+                                    this.set({
+                                        top: endY,
+                                        left: startX,
+                                        width: hypotWidth,
+                                        angle: calcAngle,
+                                        originY: "center",
+                                    }).setCoords();
+
+                                    break;
+                                }
+
+                                case 90:
+                                case -90: {
+                                    /**
+                                     * x/left Needs to be same as endX as endX will be equal to startX for
+                                     * these angles, because start dot and end dot are on the same axis(Vertical Axis)
+                                     */
+
+                                    this.set({
+                                        top: startY,
+                                        left: endX,
+                                        width: hypotWidth,
+                                        angle: calcAngle,
+                                        originY: "center",
+                                    }).setCoords();
+
+                                    break;
+                                }
+
+                                case 45:
+                                case -135: {
+                                    /**
+                                     * calcStartX and calcStartY needs to be calculated,
+                                     * multiplying the hypot width of the line with sin of the angle gives us the displacement.
+                                     * Math.sin(calcAngle * (Math.PI / 180) for 45 Degree is 0.7071067811865475
+                                     * Math.sin(calcAngle * (Math.PI / 180) for -135 Degree is -0.7071067811865475
+                                     */
+
+                                    const calcStartX =
+                                        endX -
+                                        Math.round(hypotWidth) * Math.sin(calcAngle * (Math.PI / 180));
+                                    const calcStartY =
+                                        endY -
+                                        Math.round(hypotWidth) * Math.sin(calcAngle * (Math.PI / 180));
+
+                                    this.set({
+                                        top: calcStartY,
+                                        left: calcStartX,
+                                        width: hypotWidth,
+                                        angle: calcAngle,
+                                        originY: "center",
+                                    }).setCoords();
+
+                                    break;
+                                }
+
+                                case -45:
+                                case 135: {
+                                    /**
+                                     * calcStartX and calcStartY needs to be calculated,
+                                     * multiplying the hypot width of the line with cos of the angle gives us the displacement.
+                                     * Math.cos(calcAngle * (Math.PI / 180) for -45 Degree is 0.7071067811865475
+                                     * Math.cos(calcAngle * (Math.PI / 180) for 135 Degree is -0.7071067811865475
+                                     */
+                                    //
+
+                                    const calcStartX =
+                                        endX -
+                                        Math.round(hypotWidth) * Math.cos(calcAngle * (Math.PI / 180));
+                                    const calcStartY =
+                                        endY +
+                                        Math.round(hypotWidth) * Math.cos(calcAngle * (Math.PI / 180));
+
+                                    this.set({
+                                        top: calcStartY,
+                                        left: calcStartX,
+                                        width: hypotWidth,
+                                        angle: calcAngle,
+                                        originY: "center",
+                                    }).setCoords();
+
+                                    break;
+                                }
+                            }
+                        } else {
+                            this.set({
+                                top: startY,
+                                left: startX,
+                                width: hypotWidth,
+                                angle: lineAngle,
+                                originY: "center",
+                            }).setCoords();
+                        }
+                    },
+                    getLineCoords: function () {
+                        this.setCoords();
+
+                        /**
+                         * Heights for Start Points can be replaced to 'this.groupedObject.aCoords.tl.y - this.groupedObject.aCoords.bl.y' from 'this.groupedObject.height'
+                         * Heights for End Points can be replaced to 'this.groupedObject.aCoords.tr.y - this.groupedObject.aCoords.br.y' from 'this.groupedObject.height'
+                         */
+
+                        return {
+                            startX:
+                                this.aCoords.tl.x -
+                                Math.round(this.height / 2) *
+                                Math.sin(this.angle * (Math.PI / 180)),
+                            startY:
+                                this.aCoords.tl.y +
+                                Math.round(this.height / 2) *
+                                Math.cos(this.angle * (Math.PI / 180)),
+                            endX:
+                                this.aCoords.tr.x -
+                                Math.round(this.height / 2) *
+                                Math.sin(this.angle * (Math.PI / 180)),
+                            endY:
+                                this.aCoords.tr.y +
+                                Math.round(this.height / 2) *
+                                Math.cos(this.angle * (Math.PI / 180)),
+                        };
+                    },
+                });
+            }
+        }
+
+        class LineControlManager {
+            constructor({ canvasObject }) {
+                this.canvasObject = canvasObject;
+                this.startDot = null;
+                this.endDot = null;
+                this.elementIdentifier = null;
+                this.controlsCircleRadius = 12;
+                this.followerObject = null;
+
+                this.eventStarted = false;
+                this.orignalInformation = null;
+
+                Object.assign(fabric.Circle.prototype, {
+                    updateDotCoordinates: function ({ xCoord, yCoord, lineWidth }) {
+                        // console.log({ xCoord, yCoord });
+                        this.set({
+                            top: yCoord + lineWidth / 2,
+                            left: xCoord,
+                            visible: true,
+                        })
+                            .setCoords()
+                            .bringToFront();
+                    },
+                });
+            }
+
+            init({ editorInstance }) {
+                this.editorInstance = editorInstance;
+
+                this.createElement();
+                this.initializeListeners();
+            }
+
+            createElement() {
+                let defaultAttributes = {
+                    originX: "center",
+                    originY: "center",
+                    left: 0,
+                    top: 0,
+                    angle: 0,
+                    hasControls: false,
+                    hasBorder: false,
+
+                    borderColor: "transparent",
+                    elementIdentifier: "control",
+                    radius: this.controlsCircleRadius,
+                    fill: "#fe5951",
+                    stroke: "black",
+                    visible: false,
+                };
+
+                this.startDot = _private.createCircleShape({
+                    ...defaultAttributes,
+                    uuid: uuidv4(),
+                });
+                this.endDot = _private.createCircleShape({
+                    ...defaultAttributes,
+                    uuid: uuidv4(),
+                });
+
+                this.canvasObject.add(this.startDot);
+                this.canvasObject.add(this.endDot);
+                this.canvasObject.renderAll();
+            }
+
+            showControls({ startX, startY, endX, endY }) {
+                if (this.followerObject && !this.followerObject.selectable) {
+                    return;
+                }
+
+                this.startDot
+                    .set({
+                        top: startY + this.followerObject.strokeWidth / 2,
+                        left: startX,
+                        radius:
+                            this.followerObject.strokeWidth <= this.controlsCircleRadius
+                                ? this.controlsCircleRadius
+                                : this.followerObject.strokeWidth,
+                        selectable: true,
+                        visible: true,
+                    })
+                    .setCoords()
+                    .bringToFront();
+
+                this.endDot
+                    .set({
+                        top: endY + this.followerObject.strokeWidth / 2,
+                        left: endX,
+                        radius:
+                            this.followerObject.strokeWidth <= this.controlsCircleRadius
+                                ? this.controlsCircleRadius
+                                : this.followerObject.strokeWidth,
+                        selectable: true,
+                        visible: true,
+                    })
+                    .setCoords()
+                    .bringToFront();
+            }
+
+            hideControls() {
+                this.startDot.set({
+                    visible: false,
+                });
+                this.endDot.set({
+                    visible: false,
+                });
+            }
+
+            setFollowerObject(object) {
+                this.followerObject = object;
+            }
+
+            getControls() {
+                return {
+                    startDot: this.startDot,
+                    endDot: this.endDot,
+                };
+            }
+
+            initializeListeners() {
+                this.startDot.on("moving", () => {
+                    if (!this.eventStarted) {
+                        this.eventStarted = true;
+                        this.hideControls();
+                    }
+
+                    const { x: startDotCenterX, y: startDotCenterY } =
+                        this.startDot.getCenterPoint();
+                    const { x: endDotCenterX, y: endDotCenterY } =
+                        this.endDot.getCenterPoint();
+
+                    this.followerObject.updateLineOnLineControlMove({
+                        startX: startDotCenterX,
+                        startY: startDotCenterY,
+                        endX: endDotCenterX,
+                        endY: endDotCenterY,
+                        dotRef: "START",
+                    });
+                });
+
+                this.endDot.on("moving", () => {
+                    if (!this.eventStarted) {
+                        this.eventStarted = true;
+                        this.hideControls();
+                    }
+
+                    const { x: startDotCenterX, y: startDotCenterY } =
+                        this.startDot.getCenterPoint();
+                    const { x: endDotCenterX, y: endDotCenterY } =
+                        this.endDot.getCenterPoint();
+
+                    this.followerObject.updateLineOnLineControlMove({
+                        startX: startDotCenterX,
+                        startY: startDotCenterY - this.followerObject.strokeWidth / 2,
+                        endX: endDotCenterX,
+                        endY: endDotCenterY - this.followerObject.strokeWidth / 2,
+                        dotRef: "END",
+                    });
+                });
+            }
+        }
+
+        class LineShape {
+            constructor({ canvasObject }) {
+                this.canvasObject = canvasObject;
+                this._self = null;
+                this.line = null;
+                this.eventStarted = false;
+                this.orignalInformation = null;
+                this.groupedObject = null;
+            }
+
+            init({ editorInstance }) {
+                this.editorInstance = editorInstance;
+            }
+
+            drawShape(options, additionalAttributes) {
+                const line = _private.createLine(
+                    { ...options, uuid: uuidv4() },
+                    additionalAttributes
+                );
+                this.canvasObject.add(line);
+                this.line = line;
+            }
+
+            updateShape(options, additionalAttributes) {
+                const { endX, endY } = additionalAttributes;
+
+                this.line.set({
+                    x2: endX,
+                    y2: endY,
+                });
+            }
+
+            completeShape({ startX, startY, endX, endY }) {
+                let line = this.line;
+                this.canvasObject.discardActiveObject();
+                this.canvasObject.remove(this.line);
+
+                let lineAngle = _private.getAngle({ startX, startY, endX, endY });
+                let hypotWidth = Math.hypot(endX - startX, endY - startY);
+
+                line
+                    .set({
+                        y2: startY + hypotWidth,
+                        x2: startX + hypotWidth,
+                        width: hypotWidth,
+                        height: 0,
+                        // objectCaching: false,
+                    })
+                    .setCoords();
+
+                let selection = new fabric.ActiveSelection([line], {
+                    canvas: this.canvasObject,
+                });
+
+                this.groupedObject = selection.toGroup();
+                this.groupedObject.set({
+                    uuid: uuidv4(),
+                    hasBorders: false,
+                    angle: lineAngle,
+                    lockScalingY: true,
+                    objectCaching: true,
+                    originY: "center",
+                    slideId: line.slideId,
+                    elementIdentifier: line.elementIdentifier,
+                    elementType: line.elementType,
+                    isCreatedByUser: line.isCreatedByUser,
+                    elementId: line.elementId,
+                    strokeWidth: line.strokeWidth,
+                    height: line.strokeWidth <= 12 ? 12 : line.strokeWidth / 2,
+                });
+
+                this.hideLineControls();
+                this.initializeListeners();
+            }
+
+            getLineCoords() {
+                this.groupedObject.setCoords();
+
+                /**
+                 * Heights for Start Points can be replaced to 'this.groupedObject.aCoords.tl.y - this.groupedObject.aCoords.bl.y' from 'this.groupedObject.height'
+                 * Heights for End Points can be replaced to 'this.groupedObject.aCoords.tr.y - this.groupedObject.aCoords.br.y' from 'this.groupedObject.height'
+                 */
+
+                return {
+                    startX:
+                        this.groupedObject.aCoords.tl.x -
+                        Math.round(this.groupedObject.height / 2) *
+                        Math.sin(this.groupedObject.angle * (Math.PI / 180)),
+                    startY:
+                        this.groupedObject.aCoords.tl.y +
+                        Math.round(this.groupedObject.height / 2) *
+                        Math.cos(this.groupedObject.angle * (Math.PI / 180)),
+                    endX:
+                        this.groupedObject.aCoords.tr.x -
+                        Math.round(this.groupedObject.height / 2) *
+                        Math.sin(this.groupedObject.angle * (Math.PI / 180)),
+                    endY:
+                        this.groupedObject.aCoords.tr.y +
+                        Math.round(this.groupedObject.height / 2) *
+                        Math.cos(this.groupedObject.angle * (Math.PI / 180)),
+                };
+            }
+
+            getLineAtrribute(attributeName) {
+                return this.line[attributeName];
+            }
+
+            getSelf() {
+                return this.groupedObject;
+            }
+
+            setSelf(elementInstance) {
+                this.groupedObject = elementInstance;
+                this.line = this.groupedObject._objects[0];
+            }
+
+            hideLineControls() {
+                this.groupedObject.setControlsVisibility({
+                    mt: false,
+                    mb: false,
+                    ml: false,
+                    mr: false,
+                    bl: false,
+                    br: false,
+                    tl: false,
+                    tr: false,
+                });
+                this.groupedObject.set({
+                    hasBorder: false,
+                    borderColor: "transparent",
+                });
+            }
+
+            setLineControls({ startDot, endDot }) {
+                this.startControl = startDot;
+                this.endControl = endDot;
+            }
+
+            initializeListeners() {
+                this.groupedObject.on("moving", () => {
+                    this.updateLineControl();
+                    this.canvasObject.renderAll();
+                });
+                this.groupedObject.on("rotating", () => {
+                    this.updateLineControl();
+                    this.canvasObject.renderAll();
+                });
+            }
+
+            updateLineControl() {
+                const { startX, startY, endX, endY } = this.getLineCoords();
+
+                if (this.startControl && this.endControl) {
+                    this.startControl.updateDotCoordinates({
+                        xCoord: startX,
+                        yCoord: startY,
+                        lineWidth: this.line.strokeWidth,
+                    });
+                    this.endControl.updateDotCoordinates({
+                        xCoord: endX,
+                        yCoord: endY,
+                        lineWidth: this.line.strokeWidth,
+                    });
+                }
+            }
+        }
+
+        class LineManager {
+            constructor({ canvasObject, defaultElementHeight, defaultElementWidth }) {
+                this.canvasObject = canvasObject;
+                this.defaultElementHeight = defaultElementHeight;
+                this.defaultElementWidth = defaultElementWidth;
+                this.selectedShape = null;
+                this.shapeAdditionalInfo = null;
+
+                this.lineShape = new LineShape({ canvasObject });
+                this.lineControlManager = new LineControlManager({ canvasObject });
+                this.pointerX = undefined;
+                this.pointerY = undefined;
+            }
+
+            init(editorInstance) {
+                this.editorInstance = editorInstance;
+
+                this.lineControlManager.init({
+                    canvasObject: this.canvasObject,
+                    editorInstance,
+                });
+                this.lineShape.init({ editorInstance });
+            }
+
+            setSelectedShape(shape) {
+                this.lineControlManager.setFollowerObject(shape);
+                this.lineShape.setSelf(shape);
+                this.lineControlManager.showControls(this.lineShape.getLineCoords());
+                this.lineShape.setLineControls(this.lineControlManager.getControls());
+            }
+            setSelectedShapeAdditionalInfo(data) {
+                this.shapeAdditionalInfo = data;
+            }
+
+            async createShape(options = null, additionalAttributes = null) {
+                // console.log(defaultRequiredCanvasElementAttributes);
+                if (options) {
+                    options.elementIdentifier = this.selectedShape;
+                }
+
+                if (additionalAttributes) {
+                    this.pointerX = additionalAttributes.startX;
+                    this.pointerY = additionalAttributes.startY;
+                }
+
+                let lineRelatedAttributes = {
+                    isCreatedByUser: true,
+                    stroke: "#000000",
+                    strokeWidth: 4,
+                    strokeLineCap: "round",
+                    ...defaultRequiredCanvasElementAttributes,
+                    ...options,
+                    ...(this.shapeAdditionalInfo && this.shapeAdditionalInfo),
+                };
+
+                let coordinate = {
+                    endX: additionalAttributes.startX,
+                    endY: additionalAttributes.startY,
+                    ...additionalAttributes,
+                };
+
+                this.lineShape.drawShape({ ...lineRelatedAttributes }, coordinate);
+                this.canvasObject.renderAll();
+            }
+
+            updateShape(options, additionalAttributes) {
+                let coordinate = {
+                    ...additionalAttributes,
+                    startX: this.pointerX,
+                    startY: this.pointerY,
+                };
+
+                this.lineShape.updateShape(options, coordinate);
+                this.canvasObject.renderAll();
+            }
+
+            async completeShape(additionalAttributes = null, additionalInfo = null) {
+                if (additionalInfo && additionalInfo.mouseNotMoved) {
+                    additionalAttributes.startX = additionalInfo.pointerX;
+                    additionalAttributes.startY = additionalInfo.pointerY;
+                    additionalAttributes.endX =
+                        additionalInfo.pointerX + this.defaultElementWidth * 2;
+                    additionalAttributes.endY = additionalInfo.pointerY;
+                }
+
+                this.lineShape.completeShape(additionalAttributes);
+                this.lineShape.initializeListeners();
+                this.lineShape.hideLineControls();
+                this.selectedShapeAttribute = this.lineShape.getSelf();
+
+                this.editorInstance.setDrawingOnCanvas(false);
+                console.log("Came here");
+
+                this.canvasObject.setActiveObject(this.selectedShapeAttribute);
+                this.canvasObject.renderAll();
+            }
+        }
+
+        new FabricMain();
+    </script>
+</body>
+
+</html>
